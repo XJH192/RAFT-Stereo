@@ -1,0 +1,55 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# Environments / logs
+.venv/
+venv/
+env/
+ENV/
+*.log
+runs/
+
+# Raw datasets and archives
+datasets/
+*.zip
+*.7z
+*.tar
+*.gz
+*.bz2
+*.xz
+
+# Model weights and exported artifacts
+models/*.pth
+models/*.pt
+models/*.ckpt
+models/*.onnx
+models/ops/build/
+models/ops/dist/
+models/ops/*.egg-info/
+models/ops/**/*.so
+
+# Generated outputs
+output/
+output_*/
+demo_output/
+demo_output_*/
+compare_output/
+compare_output_*/
+report_output/
+report_output_*/
+test_output/
+test_output_*/
