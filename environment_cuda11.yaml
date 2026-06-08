@@ -17,3 +17,6 @@ dependencies:
   - imageio
   - scikit-image
   - p7zip
+  - pip
+  - pip:
+      - kornia==0.6.12

@@ -3,6 +3,7 @@ sys.path.append('core')
 
 import argparse
 import glob
+import logging
 import numpy as np
 import torch
 from tqdm import tqdm
@@ -20,9 +21,26 @@ def load_image(imfile):
     img = torch.from_numpy(img).permute(2, 0, 1).float()
     return img[None].to(DEVICE)
 
+
+def load_checkpoint(model, restore_ckpt, use_dense_frontend):
+    checkpoint = torch.load(restore_ckpt)
+    strict = not use_dense_frontend
+    result = model.load_state_dict(checkpoint, strict=strict)
+    if strict:
+        return
+
+    missing = [key for key in result.missing_keys if 'dense_matcher' not in key]
+    unexpected = [key for key in result.unexpected_keys if 'dense_matcher' not in key]
+    if missing or unexpected:
+        raise RuntimeError(f"Checkpoint mismatch. Missing: {missing}. Unexpected: {unexpected}")
+
+    if result.missing_keys:
+        logging.warning("Dense frontend keys are not stored in the checkpoint; using the module's current weights.")
+
+
 def demo(args):
     model = torch.nn.DataParallel(RAFTStereo(args), device_ids=[0])
-    model.load_state_dict(torch.load(args.restore_ckpt))
+    load_checkpoint(model, args.restore_ckpt, args.use_dense_frontend)
 
     model = model.module
     model.to(DEVICE)
@@ -72,6 +90,17 @@ if __name__ == '__main__':
     parser.add_argument('--context_norm', type=str, default="batch", choices=['group', 'batch', 'instance', 'none'], help="normalization of context encoder")
     parser.add_argument('--slow_fast_gru', action='store_true', help="iterate the low-res GRUs more frequently")
     parser.add_argument('--n_gru_layers', type=int, default=3, help="number of hidden GRU levels")
+    parser.add_argument('--use_dense_frontend', action='store_true', help='enable transformer dense matcher before RAFT refinement')
+    parser.add_argument('--dense_frontend_type', choices=['row_transformer', 'loftr', 'roma'], default='row_transformer', help='frontend matcher used before RAFT refinement')
+    parser.add_argument('--dense_frontend_pretrained', type=str, default='outdoor', help='pretrained preset for the selected frontend matcher')
+    parser.add_argument('--dense_frontend_confidence_thresh', type=float, default=0.2, help='minimum confidence kept from LoFTR/RoMa matches')
+    parser.add_argument('--dense_frontend_max_vertical_offset', type=float, default=2.0, help='maximum allowed vertical mismatch in pixels for LoFTR/RoMa matches')
+    parser.add_argument('--dense_frontend_blur_kernel', type=int, default=7, help='odd kernel size used to spread sparse matches onto the RAFT grid')
+    parser.add_argument('--dense_frontend_blur_std', type=float, default=2.0, help='gaussian std used to spread sparse matches onto the RAFT grid')
+    parser.add_argument('--dense_frontend_trainable', action='store_true', help='allow gradients through the selected external frontend when supported')
+    parser.add_argument('--dense_matcher_layers', type=int, default=2, help='number of transformer layers in the row transformer matcher')
+    parser.add_argument('--dense_matcher_heads', type=int, default=8, help='number of attention heads in the row transformer matcher')
+    parser.add_argument('--dense_matcher_ffn_dim', type=int, default=512, help='feedforward width in the row transformer matcher')
     
     args = parser.parse_args()
 

@@ -4,6 +4,7 @@ import torch.nn.functional as F
 from core.update import BasicMultiUpdateBlock
 from core.extractor import BasicEncoder, MultiBasicEncoder, ResidualBlock
 from core.corr import CorrBlock1D, PytorchAlternateCorrBlock1D, CorrBlockFast1D, AlternateCorrBlock
+from core.dense_matcher import build_dense_frontend
 from core.utils.utils import coords_grid, upflow8
 
 
@@ -38,6 +39,10 @@ class RAFTStereo(nn.Module):
         else:
             self.fnet = BasicEncoder(output_dim=256, norm_fn='instance', downsample=args.n_downsample)
 
+        self.dense_matcher = None
+        if getattr(args, 'use_dense_frontend', False):
+            self.dense_matcher = build_dense_frontend(args)
+
     def freeze_bn(self):
         for m in self.modules():
             if isinstance(m, nn.BatchNorm2d):
@@ -70,8 +75,10 @@ class RAFTStereo(nn.Module):
     def forward(self, image1, image2, iters=12, flow_init=None, test_mode=False):
         """ Estimate optical flow between pair of frames """
 
-        image1 = (2 * (image1 / 255.0) - 1.0).contiguous()
-        image2 = (2 * (image2 / 255.0) - 1.0).contiguous()
+        raw_image1 = image1.contiguous()
+        raw_image2 = image2.contiguous()
+        image1 = (2 * (raw_image1 / 255.0) - 1.0).contiguous()
+        image2 = (2 * (raw_image2 / 255.0) - 1.0).contiguous()
 
         # run the context network
         with autocast(enabled=self.args.mixed_precision):
@@ -97,9 +104,18 @@ class RAFTStereo(nn.Module):
             corr_block = CorrBlockFast1D
         elif self.args.corr_implementation == "alt_cuda": # Faster version of alt
             corr_block = AlternateCorrBlock
+
+        matcher_flow_init = None
+        if self.dense_matcher is not None:
+            fmap1, fmap2 = fmap1.float(), fmap2.float()
+            fmap1, fmap2, matcher_flow_init = self.dense_matcher(fmap1, fmap2, raw_image1, raw_image2)
+
         corr_fn = corr_block(fmap1, fmap2, radius=self.args.corr_radius, num_levels=self.args.corr_levels)
 
         coords0, coords1 = self.initialize_flow(net_list[0])
+
+        if matcher_flow_init is not None:
+            coords1 = coords1 + matcher_flow_init
 
         if flow_init is not None:
             coords1 = coords1 + flow_init
